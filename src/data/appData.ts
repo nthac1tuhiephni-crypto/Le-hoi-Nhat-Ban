@@ -58,6 +58,24 @@ export const FESTIVAL_TEXTS = {
   },
 };
 
+export const STATIC_SCREEN_IMAGES: Record<ImageScreenKey, string> = {
+  'TRANG-BIA': '/images/TRANG-BIA.png',
+  'PHAN-1': '/images/PHAN-1.png',
+  'HOA-ANH-DAO': '/images/HOA-ANH-DAO.png',
+  'BUP-BE': '/images/BUP-BE.png',
+  'TET-THIEU-NHI': '/images/TET-THIEU-NHI.png',
+  'LE-HOI-KHAC': '/images/LE-HOI-KHAC.png',
+};
+
+export const STATIC_AUDIO_SLOTS: Record<AudioSlotKey, string> = {
+  'hoa-anh-dao-vi': '/audio/hoa-anh-dao-vi.wav',
+  'hoa-anh-dao-en': '/audio/hoa-anh-dao-en.wav',
+  'bup-be-vi': '/audio/bup-be-vi.wav',
+  'bup-be-en': '/audio/bup-be-en.wav',
+  'tet-thieu-nhi-vi': '/audio/tet-thieu-nhi-vi.wav',
+  'tet-thieu-nhi-en': '/audio/tet-thieu-nhi-en.wav',
+};
+
 export const SCREEN_HOTSPOTS: Record<ImageScreenKey, HotspotConfig[]> = {
   'TRANG-BIA': [
     {
@@ -193,6 +211,7 @@ export const SCREEN_HOTSPOTS: Record<ImageScreenKey, HotspotConfig[]> = {
       height: 10.4,
       actionType: 'audio',
       audioSlot: 'hoa-anh-dao-vi',
+      audioUrl: '/audio/hoa-anh-dao-vi.wav',
       audioLang: 'vi',
       audioText: FESTIVAL_TEXTS['HOA-ANH-DAO'].vi,
     },
@@ -205,6 +224,7 @@ export const SCREEN_HOTSPOTS: Record<ImageScreenKey, HotspotConfig[]> = {
       height: 10.4,
       actionType: 'audio',
       audioSlot: 'hoa-anh-dao-en',
+      audioUrl: '/audio/hoa-anh-dao-en.wav',
       audioLang: 'en',
       audioText: FESTIVAL_TEXTS['HOA-ANH-DAO'].en,
     },
@@ -259,6 +279,7 @@ export const SCREEN_HOTSPOTS: Record<ImageScreenKey, HotspotConfig[]> = {
       height: 10.4,
       actionType: 'audio',
       audioSlot: 'bup-be-vi',
+      audioUrl: '/audio/bup-be-vi.wav',
       audioLang: 'vi',
       audioText: FESTIVAL_TEXTS['BUP-BE'].vi,
     },
@@ -271,6 +292,7 @@ export const SCREEN_HOTSPOTS: Record<ImageScreenKey, HotspotConfig[]> = {
       height: 10.4,
       actionType: 'audio',
       audioSlot: 'bup-be-en',
+      audioUrl: '/audio/bup-be-en.wav',
       audioLang: 'en',
       audioText: FESTIVAL_TEXTS['BUP-BE'].en,
     },
@@ -325,6 +347,7 @@ export const SCREEN_HOTSPOTS: Record<ImageScreenKey, HotspotConfig[]> = {
       height: 10.4,
       actionType: 'audio',
       audioSlot: 'tet-thieu-nhi-vi',
+      audioUrl: '/audio/tet-thieu-nhi-vi.wav',
       audioLang: 'vi',
       audioText: FESTIVAL_TEXTS['TET-THIEU-NHI'].vi,
     },
@@ -337,6 +360,7 @@ export const SCREEN_HOTSPOTS: Record<ImageScreenKey, HotspotConfig[]> = {
       height: 10.4,
       actionType: 'audio',
       audioSlot: 'tet-thieu-nhi-en',
+      audioUrl: '/audio/tet-thieu-nhi-en.wav',
       audioLang: 'en',
       audioText: FESTIVAL_TEXTS['TET-THIEU-NHI'].en,
     },

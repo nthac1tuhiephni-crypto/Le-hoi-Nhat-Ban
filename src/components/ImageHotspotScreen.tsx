@@ -1,39 +1,31 @@
 import React, { useEffect, useState } from 'react';
 import {
-  AudioSlotKey,
   FESTIVAL_TEXTS,
   HotspotConfig,
   ImageScreenKey,
   SCREEN_HOTSPOTS,
   ScreenId,
+  STATIC_AUDIO_SLOTS,
+  STATIC_SCREEN_IMAGES,
   VOCABULARY_CARDS,
 } from '../data/appData';
 import { audioManager } from '../services/audioManager';
 
 interface ImageHotspotScreenProps {
   screenKey: ImageScreenKey;
-  customImages: Record<string, string | null>;
-  customAudios: Record<string, string | null>;
   activeAudioId: string | null;
   isAudioLoading: boolean;
   onNavigate: (target: ScreenId) => void;
-  onOpenAssetModal: () => void;
-  onQuickUploadFiles: (files: FileList) => Promise<void>;
 }
 
 export const ImageHotspotScreen: React.FC<ImageHotspotScreenProps> = ({
   screenKey,
-  customImages,
-  customAudios,
   activeAudioId,
   isAudioLoading,
   onNavigate,
-  onOpenAssetModal,
-  onQuickUploadFiles,
 }) => {
   const [imageLoadFailed, setImageLoadFailed] = useState<Record<string, boolean>>({});
   const [showFinishExploreModal, setShowFinishExploreModal] = useState(false);
-  const [isDraggingOver, setIsDraggingOver] = useState(false);
 
   // Stop any audio when leaving screen or unmounting
   useEffect(() => {
@@ -43,8 +35,8 @@ export const ImageHotspotScreen: React.FC<ImageHotspotScreenProps> = ({
   }, [screenKey]);
 
   const hotspots = SCREEN_HOTSPOTS[screenKey];
-  const uploadedUrl = customImages[screenKey];
-  const hasValidUploadedImage = Boolean(uploadedUrl && !imageLoadFailed[uploadedUrl]);
+  const imageUrl = STATIC_SCREEN_IMAGES[screenKey];
+  const hasValidImage = Boolean(imageUrl && !imageLoadFailed[imageUrl]);
 
   const handleHotspotClick = (spot: HotspotConfig) => {
     if (spot.actionType === 'navigate' && spot.targetScreen) {
@@ -67,10 +59,10 @@ export const ImageHotspotScreen: React.FC<ImageHotspotScreenProps> = ({
       }
 
       // Dừng audio hiện tại và phát audio mới từ đầu
-      const customAudioUrl = spot.audioUrl || (spot.audioSlot ? customAudios[spot.audioSlot] : null);
+      const directAudioUrl = spot.audioUrl || (spot.audioSlot ? STATIC_AUDIO_SLOTS[spot.audioSlot] : null);
       audioManager.playAudioOrTTS({
         id: spot.id,
-        customAudioUrl,
+        customAudioUrl: directAudioUrl,
         text: spot.audioText || spot.label,
         lang: spot.audioLang || 'vi',
       });
@@ -78,35 +70,10 @@ export const ImageHotspotScreen: React.FC<ImageHotspotScreenProps> = ({
     }
   };
 
-  const handleDrop = async (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDraggingOver(false);
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      await onQuickUploadFiles(e.dataTransfer.files);
-    }
-  };
-
-  const missingImagesCount = [
-    'TRANG-BIA',
-    'PHAN-1',
-    'HOA-ANH-DAO',
-    'BUP-BE',
-    'TET-THIEU-NHI',
-    'LE-HOI-KHAC',
-  ].filter((k) => !customImages[k]).length;
-
   return (
-    <div
-      className="min-h-screen w-full bg-gradient-to-b from-sky-100 via-rose-50 to-amber-50 flex flex-col items-center justify-center p-2 sm:p-4 relative"
-      onDragOver={(e) => {
-        e.preventDefault();
-        setIsDraggingOver(true);
-      }}
-      onDragLeave={() => setIsDraggingOver(false)}
-      onDrop={handleDrop}
-    >
+    <div className="min-h-screen w-full bg-gradient-to-b from-sky-100 via-rose-50 to-amber-50 flex flex-col items-center justify-center p-2 sm:p-4 relative">
       {/* Top Helper Bar outside the 16:9 image frame so it NEVER overlaps the image */}
-      <div className="w-full max-w-[1440px] flex flex-wrap items-center justify-between gap-2 mb-2 px-1">
+      <div className="w-full max-w-[1440px] flex items-center justify-between gap-2 mb-2 px-1">
         <div className="flex items-center gap-2 text-xs sm:text-sm font-bold text-rose-800">
           <span>🌸 Bài 29: Lễ hội ở Nhật Bản</span>
           {activeAudioId && (
@@ -119,50 +86,19 @@ export const ImageHotspotScreen: React.FC<ImageHotspotScreenProps> = ({
             </button>
           )}
         </div>
-
-        <div className="flex items-center gap-2">
-          {missingImagesCount > 0 && (
-            <label className="inline-flex items-center gap-1.5 bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-xl text-xs sm:text-sm font-bold shadow-sm transition-colors cursor-pointer">
-              <span>📁 Chọn 6 ảnh gốc ({6 - missingImagesCount}/6)</span>
-              <input
-                type="file"
-                multiple
-                accept="image/*,audio/*"
-                className="hidden"
-                onChange={(e) => {
-                  if (e.target.files && e.target.files.length > 0) {
-                    onQuickUploadFiles(e.target.files);
-                    e.target.value = '';
-                  }
-                }}
-              />
-            </label>
-          )}
-          <button
-            onClick={onOpenAssetModal}
-            className="inline-flex items-center gap-1.5 bg-white/90 hover:bg-white text-slate-700 border border-rose-200 px-3 py-1.5 rounded-xl text-xs sm:text-sm font-semibold shadow-sm transition-colors cursor-pointer"
-            title="Tải lên hoặc cập nhật 6 ảnh gốc và file Audio"
-          >
-            <span>⚙️ Quản lý Ảnh & Audio</span>
-          </button>
-        </div>
       </div>
 
       {/* Strict 16:9 Container - Hotspots always stay locked to exact relative % coordinates on any device */}
-      <div
-        className={`relative w-full max-w-[1440px] aspect-video rounded-2xl sm:rounded-3xl overflow-hidden shadow-2xl border-4 ${
-          isDraggingOver ? 'border-amber-400 ring-4 ring-amber-300' : 'border-white/90'
-        } bg-sky-200 select-none`}
-      >
-        {hasValidUploadedImage && uploadedUrl ? (
+      <div className="relative w-full max-w-[1440px] aspect-video rounded-2xl sm:rounded-3xl overflow-hidden shadow-2xl border-4 border-white/90 bg-sky-200 select-none">
+        {hasValidImage ? (
           <img
-            src={uploadedUrl}
+            src={imageUrl}
             alt={screenKey}
             referrerPolicy="no-referrer"
             onError={() =>
               setImageLoadFailed((prev) => ({
                 ...prev,
-                [uploadedUrl]: true,
+                [imageUrl]: true,
               }))
             }
             className="w-full h-full object-fill block pointer-events-none select-none"

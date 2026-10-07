@@ -4,7 +4,6 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { AssetManagerModal } from './components/AssetManagerModal';
 import { CompletionScreen } from './components/CompletionScreen';
 import { ExplorerQuizScreen } from './components/ExplorerQuizScreen';
 import { ImageHotspotScreen } from './components/ImageHotspotScreen';
@@ -12,73 +11,9 @@ import { SmartVocabScreen } from './components/SmartVocabScreen';
 import { ImageScreenKey, ScreenId } from './data/appData';
 import { audioManager } from './services/audioManager';
 
-function normalizeFileName(name: string): string {
-  return name
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/đ/g, 'd')
-    .replace(/Đ/g, 'D')
-    .toUpperCase()
-    .replace(/[_\s]+/g, '-');
-}
-
-function matchImageKeyFromFileName(fileName: string): ImageScreenKey | null {
-  const norm = normalizeFileName(fileName);
-  if (norm.includes('TRANG-BIA') || norm.includes('BIA')) return 'TRANG-BIA';
-  if (norm.includes('PHAN-1') || norm.includes('PHAN1') || norm.includes('BAN-DO')) return 'PHAN-1';
-  if (norm.includes('HOA-ANH-DAO') || norm.includes('ANH-DAO')) return 'HOA-ANH-DAO';
-  if (norm.includes('BUP-BE')) return 'BUP-BE';
-  if (norm.includes('TET-THIEU-NHI') || norm.includes('THIEU-NHI')) return 'TET-THIEU-NHI';
-  if (norm.includes('LE-HOI-KHAC') || norm.includes('KHAC')) return 'LE-HOI-KHAC';
-  return null;
-}
-
-function matchAudioKeyFromFileName(fileName: string): string | null {
-  const norm = normalizeFileName(fileName);
-  const isEn = norm.includes('-EN') || norm.includes('ENGLISH') || norm.includes('TIENG-ANH');
-  if (norm.includes('HOA-ANH-DAO') || norm.includes('ANH-DAO')) {
-    return isEn ? 'hoa-anh-dao-en' : 'hoa-anh-dao-vi';
-  }
-  if (norm.includes('BUP-BE')) {
-    return isEn ? 'bup-be-en' : 'bup-be-vi';
-  }
-  if (norm.includes('TET-THIEU-NHI') || norm.includes('THIEU-NHI')) {
-    return isEn ? 'tet-thieu-nhi-en' : 'tet-thieu-nhi-vi';
-  }
-  return null;
-}
-
-function fileToDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = (err) => reject(err);
-    reader.readAsDataURL(file);
-  });
-}
-
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState<ScreenId>('TRANG-BIA');
   const [quizResetCounter, setQuizResetCounter] = useState(0);
-  const [isAssetModalOpen, setIsAssetModalOpen] = useState(false);
-
-  const [customImages, setCustomImages] = useState<Record<string, string | null>>({
-    'TRANG-BIA': null,
-    'PHAN-1': null,
-    'HOA-ANH-DAO': null,
-    'BUP-BE': null,
-    'TET-THIEU-NHI': null,
-    'LE-HOI-KHAC': null,
-  });
-
-  const [customAudios, setCustomAudios] = useState<Record<string, string | null>>({
-    'hoa-anh-dao-vi': null,
-    'hoa-anh-dao-en': null,
-    'bup-be-vi': null,
-    'bup-be-en': null,
-    'tet-thieu-nhi-vi': null,
-    'tet-thieu-nhi-en': null,
-  });
 
   const [activeAudioId, setActiveAudioId] = useState<string | null>(null);
   const [isAudioLoading, setIsAudioLoading] = useState(false);
@@ -153,80 +88,10 @@ export default function App() {
     return unsub;
   }, []);
 
-  // Load any saved assets from the server (/public/images & /public/audio) on mount
-  useEffect(() => {
-    fetch('/api/assets-status')
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (!data) return;
-        if (data.images) {
-          setCustomImages((prev) => ({ ...prev, ...data.images }));
-        }
-        if (data.audios) {
-          setCustomAudios((prev) => ({ ...prev, ...data.audios }));
-        }
-      })
-      .catch(() => {
-        // Ignore initial fetch error
-      });
-  }, []);
-
   const handleNavigate = (target: ScreenId) => {
     audioManager.stopAll();
     setCurrentScreen(target);
     window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
-
-  const handleUploadSingleAsset = async (
-    type: 'image' | 'audio',
-    key: string,
-    file: File
-  ): Promise<void> => {
-    const dataUrl = await fileToDataUrl(file);
-    const localBlobUrl = URL.createObjectURL(file);
-
-    if (type === 'image') {
-      setCustomImages((prev) => ({ ...prev, [key]: localBlobUrl }));
-    } else {
-      setCustomAudios((prev) => ({ ...prev, [key]: localBlobUrl }));
-    }
-
-    try {
-      const res = await fetch('/api/save-asset', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type, key, dataUrl }),
-      });
-      if (res.ok) {
-        const saved = await res.json();
-        if (saved.url) {
-          if (type === 'image') {
-            setCustomImages((prev) => ({ ...prev, [key]: saved.url }));
-          } else {
-            setCustomAudios((prev) => ({ ...prev, [key]: saved.url }));
-          }
-        }
-      }
-    } catch {
-      // Keep localBlobUrl in session if server save fails
-    }
-  };
-
-  const handleBatchUploadFiles = async (files: FileList): Promise<void> => {
-    const fileArray = Array.from(files);
-    for (const file of fileArray) {
-      if (file.type.startsWith('image/')) {
-        const matchedKey = matchImageKeyFromFileName(file.name);
-        if (matchedKey) {
-          await handleUploadSingleAsset('image', matchedKey, file);
-        }
-      } else if (file.type.startsWith('audio/')) {
-        const matchedAudioKey = matchAudioKeyFromFileName(file.name);
-        if (matchedAudioKey) {
-          await handleUploadSingleAsset('audio', matchedAudioKey, file);
-        }
-      }
-    }
   };
 
   const isImageScreen = (screen: ScreenId): screen is ImageScreenKey => {
@@ -286,13 +151,9 @@ export default function App() {
       {isImageScreen(currentScreen) && (
         <ImageHotspotScreen
           screenKey={currentScreen}
-          customImages={customImages}
-          customAudios={customAudios}
           activeAudioId={activeAudioId}
           isAudioLoading={isAudioLoading}
           onNavigate={handleNavigate}
-          onOpenAssetModal={() => setIsAssetModalOpen(true)}
-          onQuickUploadFiles={handleBatchUploadFiles}
         />
       )}
 
@@ -321,15 +182,6 @@ export default function App() {
           }}
         />
       )}
-
-      <AssetManagerModal
-        isOpen={isAssetModalOpen}
-        onClose={() => setIsAssetModalOpen(false)}
-        customImages={customImages}
-        customAudios={customAudios}
-        onUploadSingleAsset={handleUploadSingleAsset}
-        onBatchUploadFiles={handleBatchUploadFiles}
-      />
     </div>
   );
 }
