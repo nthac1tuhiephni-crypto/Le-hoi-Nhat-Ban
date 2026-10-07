@@ -265,9 +265,21 @@ export const SmartVocabScreen: React.FC<SmartVocabScreenProps> = ({
         }),
       });
 
-      const data = await response.json();
+      let data: any = null;
+      try {
+        data = await response.json();
+      } catch {
+        // Phản hồi không phải JSON hợp lệ
+      }
+
       if (!response.ok) {
-        setMicError(data.error || 'Chưa thể chấm điểm lúc này. Em hãy thử lại nhé!');
+        setMicError(data?.error || 'Chưa thể chấm điểm lúc này. Em hãy thử lại sau giây lát nhé!');
+        setIsEvaluating(false);
+        return;
+      }
+
+      if (!data || typeof data.score === 'undefined') {
+        setMicError('Không nhận được kết quả chấm điểm. Em hãy thử lại nhé!');
         setIsEvaluating(false);
         return;
       }

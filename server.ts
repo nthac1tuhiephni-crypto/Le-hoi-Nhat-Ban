@@ -3,7 +3,8 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
-import { GoogleGenAI, Type } from '@google/genai';
+import { GoogleGenAI } from '@google/genai';
+import evaluatePronunciationHandler from './api/evaluate-pronunciation.ts';
 
 dotenv.config();
 
@@ -270,141 +271,7 @@ async function startServer() {
   });
 
   // Direct acoustic pronunciation evaluation via Gemini multimodal audio analysis
-  app.post('/api/evaluate-pronunciation', async (req, res) => {
-    try {
-      const { audioBase64, mimeType, targetWord, vietnameseMeaning } = req.body as {
-        audioBase64: string;
-        mimeType: string;
-        targetWord: string;
-        vietnameseMeaning: string;
-      };
-
-      if (!audioBase64 || !targetWord) {
-        res.status(400).json({ error: 'Thiếu dữ liệu ghi âm hoặc từ mục tiêu.' });
-        return;
-      }
-
-      // Check if audio has minimal length (not silence/empty buffer)
-      if (audioBase64.length < 500) {
-        res.json({
-          score: 0,
-          transcribedText: '',
-          phoneticTipVi: 'Chưa thu được giọng đọc rõ ràng của em. Em hãy bấm "Bé đọc" và phát âm to hơn nhé!',
-          isSilenceOrNoise: true,
-        });
-        return;
-      }
-
-      const getFallbackFeedback = () => {
-        const lower = targetWord.toLowerCase().trim();
-        const phoneticTips: Record<string, string> = {
-          festival: 'Em phát âm từ "festival" rất tốt! Hãy nhớ bật nhẹ âm đuôi /l/ để thật chuẩn xác nhé. 🌟',
-          'cherry blossom': 'Tuyệt vời! Em đã đọc rất hay từ "cherry blossom", chú ý âm bật /tʃ/ và âm /s/ nhé. 🌸',
-          doll: 'Em đọc từ "doll" rất đáng yêu! Hãy uốn nhẹ đầu lưỡi cho âm /l/ ở cuối từ nhé. 🎎',
-          kimono: 'Rất xuất sắc! Em phát âm từ "kimono" tròn vành rõ chữ và rất tự tin. 👘',
-          'carp streamer': 'Giỏi lắm! Em phát âm "carp streamer" rất hay, chú ý bật nhẹ âm /p/ của từ "carp" nhé. 🎏',
-          japan: 'Rất tuyệt! Em hãy nhớ nhấn mạnh trọng âm vào âm tiết thứ hai: Ja-PAN nhé. 🗾',
-        };
-        return {
-          score: 92,
-          transcribedText: targetWord,
-          phoneticTipVi:
-            phoneticTips[lower] ||
-            `Em phát âm từ "${targetWord}" rất tốt và tự tin! Hãy tiếp tục phát huy nhé! 🌟`,
-          isSilenceOrNoise: false,
-        };
-      };
-
-      const ai = getGeminiClient();
-      if (!ai) {
-        console.warn('GEMINI_API_KEY not configured. Providing smart phonetic evaluation.');
-        res.json(getFallbackFeedback());
-        return;
-      }
-
-      const cleanMime = (mimeType || 'audio/webm').split(';')[0].trim();
-
-      const prompt = `You are an expert English pronunciation coach for Vietnamese elementary school students.
-Listen carefully to the attached audio recording from a young student practicing the target English word/phrase:
-Target English Word/Phrase: "${targetWord}" (Meaning: ${vietnameseMeaning})
-
-CRITICAL EVALUATION RULES:
-1. Analyze the ACTUAL ACOUSTIC PRONUNCIATION in the audio directly (vowel quality, consonant accuracy, ending sounds, syllable stress, rhythm, and clarity).
-2. Do NOT simply transcribe the text and award 100 if the words match. Even if the word is recognizable, deduct points appropriately for mispronounced vowels, missing final consonants (like /l/ in festival or doll, /p/ in carp), wrong syllable stress, or muffled articulation.
-3. If the audio is silent, contains only background noise/breathing, or the student says a completely unrelated word, set isSilenceOrNoise = true and score between 0 and 25.
-4. Scoring rubric (0 to 100):
-   - 90 to 100: Accurate phonemes, clear ending sounds, natural word stress, very clear pronunciation.
-   - 75 to 89: Clearly recognizable as "${targetWord}" with mostly correct sounds, only minor accent or slight vowel/ending imperfection.
-   - 60 to 74: Recognizable attempt at "${targetWord}", but noticeable pronunciation errors on one or more syllables/sounds.
-   - 1 to 59: Unclear, incomplete, wrong word, or very hard to understand.
-   - 0: Complete silence or no speech detected.
-5. In "phoneticTipVi", write 1-2 short, warm, encouraging sentences in Vietnamese tailored for an elementary school child (e.g., praising what they did well and gently guiding how to pronounce the tricky sound in "${targetWord}"). Never use harsh or negative language.`;
-
-      const response = await ai.models.generateContent({
-        model: 'gemini-3.8-flash',
-        contents: {
-          parts: [
-            {
-              inlineData: {
-                mimeType: cleanMime,
-                data: audioBase64,
-              },
-            },
-            {
-              text: prompt,
-            },
-          ],
-        },
-        config: {
-          temperature: 0.2,
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              score: {
-                type: Type.INTEGER,
-                description: 'Pronunciation accuracy score from 0 to 100 based on direct acoustic analysis.',
-              },
-              transcribedText: {
-                type: Type.STRING,
-                description: 'What the student actually said in the recording (or empty string if silence).',
-              },
-              phoneticTipVi: {
-                type: Type.STRING,
-                description: 'Gentle, positive Vietnamese feedback for the child.',
-              },
-              isSilenceOrNoise: {
-                type: Type.BOOLEAN,
-                description: 'True if no clear speech attempting the word was heard.',
-              },
-            },
-            required: ['score', 'transcribedText', 'phoneticTipVi', 'isSilenceOrNoise'],
-          },
-        },
-      });
-
-      const rawText = response.text || '{}';
-      const parsed = JSON.parse(rawText);
-      const clampedScore = Math.max(0, Math.min(100, Number(parsed.score) || 0));
-
-      res.json({
-        score: clampedScore,
-        transcribedText: parsed.transcribedText || '',
-        phoneticTipVi:
-          parsed.phoneticTipVi ||
-          'Em hãy lắng nghe kỹ âm cuối và trọng âm của từ rồi đọc to, rõ ràng nhé!',
-        isSilenceOrNoise: Boolean(parsed.isSilenceOrNoise),
-      });
-    } catch (error: any) {
-      console.warn('Pronunciation evaluation fallback:', error?.message || error);
-      res.json({
-        score: 92,
-        transcribedText: req.body?.targetWord || '',
-        phoneticTipVi: 'Em phát âm rất tốt và tự tin! Hãy tiếp tục luyện tập nhé! 🌟',
-        isSilenceOrNoise: false,
-      });
-    }
-  });
+  app.all('/api/evaluate-pronunciation', evaluatePronunciationHandler);
 
   if (process.env.NODE_ENV !== 'production') {
     const { createServer: createViteServer } = await import('vite');
