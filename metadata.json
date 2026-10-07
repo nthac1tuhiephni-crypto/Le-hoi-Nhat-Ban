@@ -1,0 +1,10 @@
+{
+  "name": "Remix Remix Lễ Hội Ở Nhật Bản - App song ngữ tương tác Tiểu học",
+  "description": "Ứng dụng học tập song ngữ tương tác Bài 29: Lễ hội ở Nhật Bản ",
+  "requestFramePermissions": [
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
