@@ -10,12 +10,125 @@ interface SmartVocabScreenProps {
 }
 
 interface EvaluationResult {
-  score: number;
+  score?: number;
+  mode: 'gemini' | 'speech-recognition';
   badgeText: string;
   badgeColor: string;
   needsRetryPrompt: boolean;
   transcribedText: string;
   phoneticTipVi: string;
+}
+
+function normalizeText(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?"'’]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function levenshteinDistance(s1: string, s2: string): number {
+  const m = s1.length;
+  const n = s2.length;
+  const dp: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0));
+
+  for (let i = 0; i <= m; i++) dp[i][0] = i;
+  for (let j = 0; j <= n; j++) dp[0][j] = j;
+
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      if (s1[i - 1] === s2[j - 1]) {
+        dp[i][j] = dp[i - 1][j - 1];
+      } else {
+        dp[i][j] = 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+      }
+    }
+  }
+  return dp[m][n];
+}
+
+function checkNearMatch(normRec: string, normTarget: string): boolean {
+  if (!normRec || !normTarget) return false;
+
+  const targetWords = normTarget.split(' ').filter(Boolean);
+  const recWords = normRec.split(' ').filter(Boolean);
+
+  // Khớp từng từ trong cụm (ví dụ "cherry blossom" hoặc "carp streamer")
+  const matches = targetWords.filter((w) => recWords.includes(w));
+  if (matches.length > 0 && targetWords.length > 1) {
+    return true;
+  }
+
+  // Chứa nhau
+  if (normRec.includes(normTarget) || normTarget.includes(normRec)) {
+    return true;
+  }
+
+  // Khoảng cách chỉnh sửa
+  const dist = levenshteinDistance(normRec, normTarget);
+  const maxLen = Math.max(normRec.length, normTarget.length);
+  if (dist <= 2 || (maxLen > 0 && (maxLen - dist) / maxLen >= 0.7)) {
+    return true;
+  }
+
+  return false;
+}
+
+function evaluateFallbackSpeech(recognizedRaw: string, targetWordRaw: string): {
+  type: 'exact' | 'near' | 'different' | 'empty';
+  tip: string;
+  badgeText: string;
+  badgeColor: string;
+  transcribedText: string;
+  needsRetryPrompt: boolean;
+} {
+  const normRec = normalizeText(recognizedRaw);
+  const normTarget = normalizeText(targetWordRaw);
+
+  if (!normRec) {
+    return {
+      type: 'empty',
+      badgeText: 'Thử lại nhé 🎧',
+      badgeColor: 'bg-rose-100 text-rose-800 border-rose-300',
+      tip: 'Cô chưa nghe rõ từ em đọc. Em hãy bấm ĐỌC MẪU rồi thử lại nhé!',
+      transcribedText: '',
+      needsRetryPrompt: true,
+    };
+  }
+
+  // 1. Nhận dạng đúng từ
+  if (normRec === normTarget) {
+    return {
+      type: 'exact',
+      badgeText: 'Đọc đúng từ 🌟',
+      badgeColor: 'bg-emerald-100 text-emerald-800 border-emerald-300',
+      tip: '🌟 Tuyệt vời! Máy đã nhận ra từ em đọc. Em hãy tiếp tục luyện tập nhé!',
+      transcribedText: normRec,
+      needsRetryPrompt: false,
+    };
+  }
+
+  // 2. Nhận dạng gần đúng hoặc có sai khác nhỏ
+  if (checkNearMatch(normRec, normTarget)) {
+    return {
+      type: 'near',
+      badgeText: 'Gần đúng 👏',
+      badgeColor: 'bg-amber-100 text-amber-800 border-amber-300',
+      tip: '👏 Em đã cố gắng rất tốt! Hãy nghe mẫu và thử đọc rõ hơn nhé!',
+      transcribedText: normRec,
+      needsRetryPrompt: true,
+    };
+  }
+
+  // 3. Nhận dạng thành từ khác
+  return {
+    type: 'different',
+    badgeText: 'Cần luyện thêm 💪',
+    badgeColor: 'bg-rose-100 text-rose-800 border-rose-300',
+    tip: '💪 Em hãy nghe mẫu, đọc chậm và thử lại nhé!',
+    transcribedText: normRec,
+    needsRetryPrompt: true,
+  };
 }
 
 function getScoreFeedback(score: number): {
@@ -71,6 +184,8 @@ export const SmartVocabScreen: React.FC<SmartVocabScreenProps> = ({
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
   const timerRef = useRef<number | null>(null);
+  const recognitionRef = useRef<any>(null);
+  const speechTranscriptRef = useRef<string>('');
 
   const currentCard = VOCABULARY_CARDS[currentIndex];
   const modelAudioId = `vocab-model-${currentCard.id}`;
@@ -80,6 +195,12 @@ export const SmartVocabScreen: React.FC<SmartVocabScreenProps> = ({
     if (timerRef.current) {
       window.clearInterval(timerRef.current);
       timerRef.current = null;
+    }
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.abort();
+      } catch {}
+      recognitionRef.current = null;
     }
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       try {
@@ -101,6 +222,7 @@ export const SmartVocabScreen: React.FC<SmartVocabScreenProps> = ({
   useEffect(() => {
     audioManager.stopAll();
     cleanupRecordingResources();
+    speechTranscriptRef.current = '';
     if (recordedBlobUrl) {
       URL.revokeObjectURL(recordedBlobUrl);
     }
@@ -134,6 +256,7 @@ export const SmartVocabScreen: React.FC<SmartVocabScreenProps> = ({
     audioManager.stopAll();
     setMicError(null);
     setEvaluation(null);
+    speechTranscriptRef.current = '';
 
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       setMicError('Trình duyệt hiện tại chưa hỗ trợ ghi âm microphone.');
@@ -144,6 +267,45 @@ export const SmartVocabScreen: React.FC<SmartVocabScreenProps> = ({
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       mediaStreamRef.current = stream;
       chunksRef.current = [];
+
+      // Khởi động nhận dạng giọng nói tiếng Anh dự phòng (Web Speech API)
+      const SpeechRecognitionClass =
+        typeof window !== 'undefined'
+          ? (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+          : null;
+
+      if (SpeechRecognitionClass) {
+        try {
+          const recognition = new SpeechRecognitionClass();
+          recognition.lang = 'en-US';
+          recognition.continuous = false;
+          recognition.interimResults = true;
+          recognition.maxAlternatives = 1;
+
+          recognition.onresult = (event: any) => {
+            let combined = '';
+            for (let i = 0; i < event.results.length; i++) {
+              combined += event.results[i][0].transcript;
+            }
+            if (combined.trim()) {
+              speechTranscriptRef.current = combined.trim();
+            }
+          };
+
+          recognition.onerror = () => {
+            // Lỗi SpeechRecognition không ảnh hưởng đến MediaRecorder
+          };
+
+          recognition.onend = () => {
+            recognitionRef.current = null;
+          };
+
+          recognitionRef.current = recognition;
+          recognition.start();
+        } catch {
+          recognitionRef.current = null;
+        }
+      }
 
       const supportedMime = [
         'audio/webm;codecs=opus',
@@ -220,6 +382,12 @@ export const SmartVocabScreen: React.FC<SmartVocabScreenProps> = ({
   };
 
   const stopRecording = () => {
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+      } catch {}
+    }
+
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       try {
         mediaRecorderRef.current.stop();
@@ -253,6 +421,8 @@ export const SmartVocabScreen: React.FC<SmartVocabScreenProps> = ({
     setIsEvaluating(true);
     setMicError(null);
 
+    let geminiSucceeded = false;
+
     try {
       const response = await fetch('/api/evaluate-pronunciation', {
         method: 'POST',
@@ -272,34 +442,57 @@ export const SmartVocabScreen: React.FC<SmartVocabScreenProps> = ({
         // Phản hồi không phải JSON hợp lệ
       }
 
-      if (!response.ok) {
-        setMicError(data?.error || 'Chưa thể chấm điểm lúc này. Em hãy thử lại sau giây lát nhé!');
-        setIsEvaluating(false);
-        return;
+      if (response.ok && data && typeof data.score !== 'undefined') {
+        const score = Number(data.score) || 0;
+        const fb = getScoreFeedback(score);
+
+        setEvaluation({
+          mode: 'gemini',
+          score,
+          badgeText: fb.badgeText,
+          badgeColor: fb.badgeColor,
+          needsRetryPrompt: fb.needsRetryPrompt,
+          transcribedText: data.transcribedText || '',
+          phoneticTipVi: data.phoneticTipVi || '',
+        });
+        geminiSucceeded = true;
       }
-
-      if (!data || typeof data.score === 'undefined') {
-        setMicError('Không nhận được kết quả chấm điểm. Em hãy thử lại nhé!');
-        setIsEvaluating(false);
-        return;
-      }
-
-      const score = Number(data.score) || 0;
-      const fb = getScoreFeedback(score);
-
-      setEvaluation({
-        score,
-        badgeText: fb.badgeText,
-        badgeColor: fb.badgeColor,
-        needsRetryPrompt: fb.needsRetryPrompt,
-        transcribedText: data.transcribedText || '',
-        phoneticTipVi: data.phoneticTipVi || '',
-      });
     } catch {
-      setMicError('Không thể kết nối tới AI chấm điểm. Em hãy kiểm tra mạng và thử lại nhé!');
-    } finally {
-      setIsEvaluating(false);
+      // Gemini gặp lỗi kết nối hoặc timeout
     }
+
+    if (geminiSucceeded) {
+      setIsEvaluating(false);
+      return;
+    }
+
+    // NẾU GEMINI GẶP LỖI (403, 429, 500 hoặc mất mạng):
+    // Kích hoạt nhận dạng giọng nói dự phòng (Web Speech API)
+    const recognizedText = speechTranscriptRef.current?.trim() || '';
+    const isSpeechRecognitionSupported =
+      typeof window !== 'undefined' &&
+      Boolean((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition);
+
+    if (recognizedText) {
+      const fallbackResult = evaluateFallbackSpeech(recognizedText, currentCard.english);
+      setEvaluation({
+        mode: 'speech-recognition',
+        badgeText: fallbackResult.badgeText,
+        badgeColor: fallbackResult.badgeColor,
+        needsRetryPrompt: fallbackResult.needsRetryPrompt,
+        transcribedText: fallbackResult.transcribedText,
+        phoneticTipVi: fallbackResult.tip,
+      });
+      setMicError(null);
+    } else if (!isSpeechRecognitionSupported) {
+      setMicError(
+        'Trình duyệt/thiết bị hiện tại chưa hỗ trợ nhận dạng giọng nói tự động. Em vẫn có thể bấm ▶️ NGHE LẠI để tự kiểm tra giọng đọc của mình nhé! 🎧'
+      );
+    } else {
+      setMicError('Cô chưa nghe rõ từ em đọc. Em hãy bấm 🔊 ĐỌC MẪU rồi thử lại nhé! 🎧');
+    }
+
+    setIsEvaluating(false);
   };
 
   const goPrevCard = () => {
@@ -538,21 +731,34 @@ export const SmartVocabScreen: React.FC<SmartVocabScreenProps> = ({
                 <div className="mt-4 bg-gradient-to-r from-amber-50 via-white to-pink-50 border-2 border-amber-300 rounded-3xl p-4 shadow-md animate-in fade-in duration-200">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="flex items-center gap-3">
-                      <div className="w-14 h-14 rounded-2xl bg-slate-900 text-white flex flex-col items-center justify-center shadow">
-                        <span className="text-xl font-black leading-none tabular-nums">
-                          {evaluation.score}
-                        </span>
-                        <span className="text-[10px] text-amber-300 font-bold">/100</span>
-                      </div>
+                      {evaluation.mode === 'gemini' && typeof evaluation.score === 'number' ? (
+                        <div className="w-14 h-14 rounded-2xl bg-slate-900 text-white flex flex-col items-center justify-center shadow shrink-0">
+                          <span className="text-xl font-black leading-none tabular-nums">
+                            {evaluation.score}
+                          </span>
+                          <span className="text-[10px] text-amber-300 font-bold">/100</span>
+                        </div>
+                      ) : (
+                        <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-amber-400 to-rose-400 text-white flex flex-col items-center justify-center shadow shrink-0 text-2xl select-none">
+                          🗣️
+                        </div>
+                      )}
                       <div className="text-left">
-                        <span
-                          className={`inline-block px-3.5 py-1 rounded-full font-black text-sm sm:text-base border shadow-xs ${evaluation.badgeColor}`}
-                        >
-                          {evaluation.badgeText}
-                        </span>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span
+                            className={`inline-block px-3.5 py-1 rounded-full font-black text-sm sm:text-base border shadow-xs ${evaluation.badgeColor}`}
+                          >
+                            {evaluation.badgeText}
+                          </span>
+                          {evaluation.mode === 'speech-recognition' && (
+                            <span className="text-[11px] font-bold text-slate-500 bg-white/90 border border-slate-200 px-2.5 py-0.5 rounded-full shadow-2xs">
+                              Nhận xét luyện đọc
+                            </span>
+                          )}
+                        </div>
                         {evaluation.transcribedText && (
                           <div className="text-xs text-slate-500 mt-1">
-                            AI nghe được: “<strong>{evaluation.transcribedText}</strong>”
+                            {evaluation.mode === 'gemini' ? 'AI nghe được' : 'Máy nghe được'}: “<strong>{evaluation.transcribedText}</strong>”
                           </div>
                         )}
                       </div>

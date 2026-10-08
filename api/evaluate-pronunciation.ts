@@ -170,8 +170,7 @@ CRITICAL EVALUATION RULES:
     res.statusCode = 200;
     res.setHeader?.('Content-Type', 'application/json');
     res.end(JSON.stringify(resultPayload));
-  } catch (error: any) {
-    console.error('Gemini pronunciation evaluation error:', error?.message || error);
+  } catch {
     const errorPayload = {
       error: 'Lỗi khi kết nối với AI chấm điểm. Vui lòng thử lại sau giây lát.',
     };

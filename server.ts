@@ -221,7 +221,6 @@ async function startServer() {
 
       const ai = getGeminiClient();
       if (!ai) {
-        console.warn('GEMINI_API_KEY is not set. Using browser speech synthesis fallback.');
         res.json({ fallback: true, message: 'Browser speech synthesis fallback' });
         return;
       }
@@ -264,9 +263,8 @@ async function startServer() {
 
       ttsCache.set(cacheKey, base64Audio);
       res.json({ audioBase64: base64Audio, mimeType: 'audio/wav' });
-    } catch (error: any) {
-      console.warn('Gemini TTS service unavailable, falling back to speech synthesis:', error?.message || error);
-      res.json({ fallback: true, error: error?.message || 'TTS fallback' });
+    } catch {
+      res.json({ fallback: true, message: 'Browser speech synthesis fallback' });
     }
   });
 
